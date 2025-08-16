@@ -1,14 +1,12 @@
-<script>
 // ===== SITE APP (unlocks + feed + toast, beep, OS notifications) =====
-const BACKEND_BASE   = "https://script.google.com/macros/s/AKfycbxYykjZ0s5IkolkWDD5PzpNeHnTUzBSu0IaJ73-S7zxjpptBFWtX2-AZZgHT_8uY78u/exec";
+const BACKEND_BASE    = "https://script.google.com/macros/s/AKfycbxYykjZ0s5IkolkWDD5PzpNeHnTUzBSu0IaJ73-S7zxjpptBFWtX2-AZZgHT_8uY78u/exec";
 const AUTO_REFRESH_MS = 2 * 60 * 1000;  // refresh data + check version
-const PING_MS         = 30_000;         // (we piggyback on refresh; keep if you ever split checks)
 
 const KEY_TOKEN  = 'auth_token';
 const KEY_DEVICE = 'device_id';
-const KEY_VER    = 'last_version_cache';   // remember last versions across reloads
-const KEY_NOTI   = 'notify_enabled';       // remember if user ok'd notifications
-const KEY_AUDIO  = 'audio_unlocked';       // remember if user interacted for audio
+const KEY_VER    = 'last_version_cache'; // remember last versions across reloads
+const KEY_NOTI   = 'notify_enabled';     // remember if user ok'd notifications
+const KEY_AUDIO  = 'audio_unlocked';     // remember if user interacted for audio
 
 // DOM
 const gateEl      = document.getElementById('gate');
@@ -145,30 +143,38 @@ async function ensureNotifyPermission() {
   if (!('Notification' in window)) return false;
   if (Notification.permission === 'granted') { st.set(KEY_NOTI, true); return true; }
   if (Notification.permission === 'denied')  { return false; }
-  // Ask once after a user interaction
   try {
     const res = await Notification.requestPermission();
     const ok  = (res === 'granted');
     st.set(KEY_NOTI, ok);
     return ok;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 function webNotify(title, body) {
+  // Use a RELATIVE path so it works on subpaths too (GitHub Pages/Netlify)
   if (!notifyEnabled() || !('Notification' in window) || Notification.permission!=='granted') return;
   try {
-    new Notification(title, { body, icon: '/icon.png' }); // put a small icon in /public if you have one
+    new Notification(title, { body, icon: 'icon.png' });
   } catch {}
 }
 
 // ---- version notifier ----
 let lastVersion = st.get(KEY_VER, { news_orders:0, signals:0, announcements:0 });
+// prevent notifications on very first load
+let firstRun = (lastVersion.news_orders===0 && lastVersion.signals===0 && lastVersion.announcements===0);
 function saveVersionCache(v) { st.set(KEY_VER, v); lastVersion = v; }
 
 async function checkVersionAndNotify() {
   try {
     const v = await apiVersion();
+
+    // On first run, seed cache without notifying
+    if (firstRun) {
+      saveVersionCache(v);
+      firstRun = false;
+      return;
+    }
+
     ['news_orders','signals','announcements'].forEach(k=>{
       if (v[k] && v[k] > (lastVersion[k]||0)) {
         const pretty = k.replace('_',' / ');
@@ -216,7 +222,7 @@ function init() {
   let deviceId = st.get(KEY_DEVICE, null);
   if (!deviceId) { deviceId = uuidv4(); st.set(KEY_DEVICE, deviceId); }
 
-  // Prepare to unlock audio + ask notif permission after first interaction
+  // Unlock audio + ask notif permission once after first interaction
   const oneTimeInteract = () => {
     unlockAudioOnce();
     ensureNotifyPermission();
@@ -264,8 +270,8 @@ tabsBtns.forEach(btn=>{
     setVisible(annPane,     tab==='ann');
   });
 });
+
 refreshBtn?.addEventListener('click', doRefresh);
 document.addEventListener('visibilitychange', ()=>{ if (!document.hidden) { doRefresh(); checkVersionAndNotify(); } });
 
 window.addEventListener('load', init);
-</script>
