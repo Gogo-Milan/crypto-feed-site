@@ -1,10 +1,14 @@
-// ===== SITE APP (unlocks + feed + toast beeps) =====
-const BACKEND_BASE = "https://script.google.com/macros/s/AKfycbxYykjZ0s5IkolkWDD5PzpNeHnTUzBSu0IaJ73-S7zxjpptBFWtX2-AZZgHT_8uY78u/exec";
-const AUTO_REFRESH_MS = 2 * 60 * 1000;
-const PING_MS = 30000;
+<script>
+// ===== SITE APP (unlocks + feed + toast, beep, OS notifications) =====
+const BACKEND_BASE   = "https://script.google.com/macros/s/AKfycbxYykjZ0s5IkolkWDD5PzpNeHnTUzBSu0IaJ73-S7zxjpptBFWtX2-AZZgHT_8uY78u/exec";
+const AUTO_REFRESH_MS = 2 * 60 * 1000;  // refresh data + check version
+const PING_MS         = 30_000;         // (we piggyback on refresh; keep if you ever split checks)
 
 const KEY_TOKEN  = 'auth_token';
 const KEY_DEVICE = 'device_id';
+const KEY_VER    = 'last_version_cache';   // remember last versions across reloads
+const KEY_NOTI   = 'notify_enabled';       // remember if user ok'd notifications
+const KEY_AUDIO  = 'audio_unlocked';       // remember if user interacted for audio
 
 // DOM
 const gateEl      = document.getElementById('gate');
@@ -21,19 +25,14 @@ const updatedAtEl = document.getElementById('updatedAt');
 const toastEl     = document.getElementById('toast');
 
 let refreshTimer = null;
-let lastVersion = { news_orders:0, signals:0, announcements:0 };
 
-// storage (localStorage for site)
+// ---- storage (localStorage for site) ----
 const st = {
-  get(k, def=null) {
-    try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; }
-    catch { return def; }
-  },
-  set(k, v) {
-    localStorage.setItem(k, JSON.stringify(v));
-  }
+  get(k, def=null) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } },
+  set(k, v)        { localStorage.setItem(k, JSON.stringify(v)); }
 };
 
+// ---- utils ----
 function setVisible(el, vis) { el.classList.toggle('hidden', !vis); }
 function h(txt) { const d=document.createElement('div'); d.textContent=txt??''; return d.innerHTML; }
 function fmtDate(dt){ const d=new Date(dt); return isNaN(d)?'':d.toLocaleString(); }
@@ -42,12 +41,10 @@ function uuidv4(){ return (crypto.randomUUID ? crypto.randomUUID() :
     const r=Math.random()*16|0,v=c==='x'?r:(r&0x3|0x8); return v.toString(16);
   })); }
 
-// API
+// ---- API ----
 async function apiRedeem(code, deviceId) {
   const r = await fetch(BACKEND_BASE + "?path=redeem", {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ code, deviceId })
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ code, deviceId })
   });
   return r.json();
 }
@@ -60,7 +57,7 @@ async function apiVersion() {
   return r.json();
 }
 
-// RENDER
+// ---- rendering ----
 function renderNews(items){
   newsPane.innerHTML='';
   if(!items?.length){ newsPane.innerHTML='<p>No items yet.</p>'; return; }
@@ -108,14 +105,27 @@ function renderAnn(items){
   });
 }
 
-// Notifier (toast + beep)
+// ---- toast + beep ----
 function showToast(msg) {
   if (!toastEl) return;
   toastEl.textContent = msg;
   toastEl.style.display = 'block';
   setTimeout(()=> toastEl.style.display='none', 4000);
 }
+function audioUnlocked() { return !!st.get(KEY_AUDIO, false); }
+function unlockAudioOnce() {
+  if (audioUnlocked()) return;
+  try {
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    // one tiny, inaudible burst to satisfy autoplay rules
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    g.gain.value = 0; o.start(); o.stop(ctx.currentTime + 0.01);
+    st.set(KEY_AUDIO, true);
+  } catch {}
+}
 function beep() {
+  if (!audioUnlocked()) return;
   try {
     const ctx = new (window.AudioContext||window.webkitAudioContext)();
     const o=ctx.createOscillator(), g=ctx.createGain();
@@ -127,58 +137,103 @@ function beep() {
     o.start(); o.stop(ctx.currentTime+0.16);
   } catch {}
 }
-async function checkVersion() {
+
+// ---- Web Notifications (native OS popups) ----
+function notifyEnabled() { return st.get(KEY_NOTI, false) === true; }
+async function ensureNotifyPermission() {
+  if (notifyEnabled()) return true;
+  if (!('Notification' in window)) return false;
+  if (Notification.permission === 'granted') { st.set(KEY_NOTI, true); return true; }
+  if (Notification.permission === 'denied')  { return false; }
+  // Ask once after a user interaction
+  try {
+    const res = await Notification.requestPermission();
+    const ok  = (res === 'granted');
+    st.set(KEY_NOTI, ok);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+function webNotify(title, body) {
+  if (!notifyEnabled() || !('Notification' in window) || Notification.permission!=='granted') return;
+  try {
+    new Notification(title, { body, icon: '/icon.png' }); // put a small icon in /public if you have one
+  } catch {}
+}
+
+// ---- version notifier ----
+let lastVersion = st.get(KEY_VER, { news_orders:0, signals:0, announcements:0 });
+function saveVersionCache(v) { st.set(KEY_VER, v); lastVersion = v; }
+
+async function checkVersionAndNotify() {
   try {
     const v = await apiVersion();
     ['news_orders','signals','announcements'].forEach(k=>{
       if (v[k] && v[k] > (lastVersion[k]||0)) {
-        showToast(`New update in ${k.replace('_',' / ')}`);
+        const pretty = k.replace('_',' / ');
+        showToast(`New update in ${pretty}`);
         beep();
+        webNotify('Crypto Private Feed', `New ${pretty} posted`);
       }
     });
-    lastVersion = v;
+    saveVersionCache(v);
   } catch {}
 }
 
-// FLOW
+// ---- data fetch flow ----
 async function doRefresh() {
   const token = st.get(KEY_TOKEN, null);
   if (!token) return;
   try {
-    const [news, sig/*, ann*/] = await Promise.all([
+    const [news, sig, ann] = await Promise.all([
       apiFeed('news_orders', token),
       apiFeed('signals', token),
-      // apiFeed('announcements', token) // enable if you have this sheet structured like others
+      apiFeed('announcements', token).catch(()=>({items:[]})) // ok if sheet missing
     ]);
     if (news?.items) renderNews(news.items);
     if (sig?.items)   renderSignals(sig.items);
-    // if (ann?.items)   renderAnn(ann.items);
+    if (ann?.items)   renderAnn(ann.items);
     updatedAtEl.textContent = fmtDate(new Date());
   } catch {
     updatedAtEl.textContent = 'refresh failed';
   }
 }
+
 async function showMain() {
   setVisible(gateEl, false);
   setVisible(mainEl, true);
   await doRefresh();
+  await checkVersionAndNotify();
   if (refreshTimer) clearInterval(refreshTimer);
   refreshTimer = setInterval(async ()=>{
     await doRefresh();
-    await checkVersion();
+    await checkVersionAndNotify();
   }, AUTO_REFRESH_MS);
-  checkVersion(); // also start notifier loop immediately
 }
 
 function init() {
   let deviceId = st.get(KEY_DEVICE, null);
   if (!deviceId) { deviceId = uuidv4(); st.set(KEY_DEVICE, deviceId); }
+
+  // Prepare to unlock audio + ask notif permission after first interaction
+  const oneTimeInteract = () => {
+    unlockAudioOnce();
+    ensureNotifyPermission();
+    window.removeEventListener('click', oneTimeInteract);
+    window.removeEventListener('keydown', oneTimeInteract);
+    window.removeEventListener('touchstart', oneTimeInteract, {passive:true});
+  };
+  window.addEventListener('click', oneTimeInteract);
+  window.addEventListener('keydown', oneTimeInteract);
+  window.addEventListener('touchstart', oneTimeInteract, {passive:true});
+
   const token = st.get(KEY_TOKEN, null);
   if (token) showMain();
   else { setVisible(gateEl, true); setVisible(mainEl, false); }
 }
 
-// Events
+// ---- events ----
 redeemBtn?.addEventListener('click', async ()=>{
   gateMsg.textContent='';
   const code = (codeInput.value||'').trim();
@@ -210,6 +265,7 @@ tabsBtns.forEach(btn=>{
   });
 });
 refreshBtn?.addEventListener('click', doRefresh);
+document.addEventListener('visibilitychange', ()=>{ if (!document.hidden) { doRefresh(); checkVersionAndNotify(); } });
 
 window.addEventListener('load', init);
-
+</script>
