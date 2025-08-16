@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Crypto Private Feed</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <div class="container">
@@ -15,6 +15,7 @@
       </div>
     </header>
 
+    <!-- GATE -->
     <section id="gate" class="card hidden">
       <h2>Enter Access Code</h2>
       <input id="codeInput" type="password" placeholder="One-time code">
@@ -22,6 +23,7 @@
       <p id="gateMsg" class="msg"></p>
     </section>
 
+    <!-- MAIN -->
     <main id="main" class="hidden">
       <nav class="tabs">
         <button class="tab active" data-tab="news">News / Orders</button>
@@ -34,7 +36,7 @@
 
       <section id="signals" class="tabpane hidden">
         <div class="row">
-          <button id="copy24hBtn">Copy last 24h signals</button>
+          <button id="copy24hBtn" class="hidden">Copy last 24h signals</button>
           <span id="copyMsg" class="msg"></span>
         </div>
         <div id="signalsList"></div>
@@ -45,54 +47,19 @@
       <footer class="foot">
         <small>Last update: <span id="updatedAt">never</span></small>
       </footer>
-
-      <!-- 🔔 Test button -->
-      <div class="row" style="margin-top:12px">
-        <button id="testNotify">Test Notification</button>
-      </div>
     </main>
   </div>
 
+  <!-- Toast -->
   <div id="toast" style="
-    position: fixed; top: 12px; right: 12px; 
-    background: #111; color: #fff; padding: 10px 14px; 
-    border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.2);
-    display: none; z-index: 9999; font-family: system-ui, sans-serif;">
+    position:fixed; top:12px; right:12px;
+    background:#111; color:#fff; padding:10px 14px;
+    border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,.2);
+    display:none; z-index:9999; font-family:system-ui,sans-serif;">
   </div>
 
-  <!-- Scripts -->
-  <script src="/lib/uuidv4.js"></script>
-  <script src="/app.js"></script>
-  <script>
-    // 🔔 Notification tester with fallback
-    document.getElementById('testNotify').addEventListener('click', () => {
-      if ("Notification" in window) {
-        if (Notification.permission === "granted") {
-          new Notification("Test Notification", {
-            body: "This is a test!",
-            icon: "/icon.png"
-          });
-        } else if (Notification.permission !== "denied") {
-          Notification.requestPermission().then(p => {
-            if (p === "granted") {
-              new Notification("Test Notification", {
-                body: "This is a test!",
-                icon: "/icon.png"
-              });
-            } else {
-              showToast("🔔 Test notification (fallback)");
-              beep();
-            }
-          });
-        } else {
-          showToast("🔔 Test notification (fallback)");
-          beep();
-        }
-      } else {
-        showToast("Notifications not supported (fallback)");
-        beep();
-      }
-    });
-  </script>
+  <!-- scripts (use relative paths + defer) -->
+  <script src="./lib/uuidv4.js" defer></script>
+  <script src="./app.js" defer></script>
 </body>
 </html>
