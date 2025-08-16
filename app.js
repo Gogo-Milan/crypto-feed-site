@@ -39,19 +39,20 @@ function uuidv4(){ return (crypto.randomUUID ? crypto.randomUUID() :
     const r=Math.random()*16|0,v=c==='x'?r:(r&0x3|0x8); return v.toString(16);
   })); }
 
-// ---- API ----
+// BEFORE (POST caused preflight)
 async function apiRedeem(code, deviceId) {
   const r = await fetch(BACKEND_BASE + "?path=redeem", {
-    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ code, deviceId })
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ code, deviceId })
   });
   return r.json();
 }
-async function apiFeed(type, token) {
-  const r = await fetch(BACKEND_BASE + `?path=feed&type=${encodeURIComponent(type)}&token=${encodeURIComponent(token)}`);
-  return r.json();
-}
-async function apiVersion() {
-  const r = await fetch(BACKEND_BASE + "?path=version");
+
+// AFTER (GET - no preflight)
+async function apiRedeem(code, deviceId) {
+  const url = BACKEND_BASE + `?path=redeem&code=${encodeURIComponent(code)}&deviceId=${encodeURIComponent(deviceId)}`;
+  const r = await fetch(url);
   return r.json();
 }
 
