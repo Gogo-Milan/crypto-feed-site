@@ -1,5 +1,5 @@
 // ===== SITE APP (unlocks + feed + toast beeps) =====
-const BACKEND_BASE = "https://script.google.com/macros/s/AKfycbzpiEn-EQIhFurF5lWnLG0sCRqHNhzBbSmxQYwgyUS7EL0Fs3wFv-7hfBJYvff3toMf/exec";
+const BACKEND_BASE = "https://script.google.com/macros/s/AKfycbxYykjZ0s5IkolkWDD5PzpNeHnTUzBSu0IaJ73-S7zxjpptBFWtX2-AZZgHT_8uY78u/exec";
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
 const PING_MS = 30000;
 
