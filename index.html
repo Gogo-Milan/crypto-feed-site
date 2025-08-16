@@ -14,12 +14,14 @@
         <button id="darkToggle" title="Toggle dark mode">🌙</button>
       </div>
     </header>
+
     <section id="gate" class="card hidden">
       <h2>Enter Access Code</h2>
       <input id="codeInput" type="password" placeholder="One-time code">
       <button id="redeemBtn">Unlock</button>
       <p id="gateMsg" class="msg"></p>
     </section>
+
     <main id="main" class="hidden">
       <nav class="tabs">
         <button class="tab active" data-tab="news">News / Orders</button>
@@ -27,7 +29,9 @@
         <button class="tab" data-tab="ann">Announcements</button>
         <button id="refreshBtn" class="right" title="Refresh">↻</button>
       </nav>
+
       <section id="news" class="tabpane"></section>
+
       <section id="signals" class="tabpane hidden">
         <div class="row">
           <button id="copy24hBtn">Copy last 24h signals</button>
@@ -35,20 +39,60 @@
         </div>
         <div id="signalsList"></div>
       </section>
+
       <section id="ann" class="tabpane hidden"></section>
+
       <footer class="foot">
         <small>Last update: <span id="updatedAt">never</span></small>
       </footer>
+
+      <!-- 🔔 Test button -->
+      <div class="row" style="margin-top:12px">
+        <button id="testNotify">Test Notification</button>
+      </div>
     </main>
   </div>
+
   <div id="toast" style="
-  position: fixed; top: 12px; right: 12px; 
-  background: #111; color: #fff; padding: 10px 14px; 
-  border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.2);
-  display: none; z-index: 9999; font-family: system-ui, sans-serif;">
-</div>
+    position: fixed; top: 12px; right: 12px; 
+    background: #111; color: #fff; padding: 10px 14px; 
+    border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.2);
+    display: none; z-index: 9999; font-family: system-ui, sans-serif;">
+  </div>
+
+  <!-- Scripts -->
   <script src="/lib/uuidv4.js"></script>
   <script src="/app.js"></script>
-  <button id="testNotify">Test Notification</button>
+  <script>
+    // 🔔 Notification tester with fallback
+    document.getElementById('testNotify').addEventListener('click', () => {
+      if ("Notification" in window) {
+        if (Notification.permission === "granted") {
+          new Notification("Test Notification", {
+            body: "This is a test!",
+            icon: "/icon.png"
+          });
+        } else if (Notification.permission !== "denied") {
+          Notification.requestPermission().then(p => {
+            if (p === "granted") {
+              new Notification("Test Notification", {
+                body: "This is a test!",
+                icon: "/icon.png"
+              });
+            } else {
+              showToast("🔔 Test notification (fallback)");
+              beep();
+            }
+          });
+        } else {
+          showToast("🔔 Test notification (fallback)");
+          beep();
+        }
+      } else {
+        showToast("Notifications not supported (fallback)");
+        beep();
+      }
+    });
+  </script>
 </body>
 </html>
