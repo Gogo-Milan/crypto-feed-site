@@ -1,4 +1,4 @@
-// ===== SITE APP (unlocks + feed + toast, beep, OS notifications) =====
+// ===== SITE APP (unlocks + feed + toast, beep, OS notifications, JSONP fallback) =====
 const BACKEND_BASE    = "https://script.google.com/macros/s/AKfycbxYykjZ0s5IkolkWDD5PzpNeHnTUzBSu0IaJ73-S7zxjpptBFWtX2-AZZgHT_8uY78u/exec";
 const AUTO_REFRESH_MS = 2 * 60 * 1000;  // refresh data + check version
 
@@ -39,21 +39,64 @@ function uuidv4(){ return (crypto.randomUUID ? crypto.randomUUID() :
     const r=Math.random()*16|0,v=c==='x'?r:(r&0x3|0x8); return v.toString(16);
   })); }
 
-// BEFORE (POST caused preflight)
-async function apiRedeem(code, deviceId) {
-  const r = await fetch(BACKEND_BASE + "?path=redeem", {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ code, deviceId })
+// ---- network helpers (robust fetch + JSONP fallback) ----
+async function fetchJSON(url) {
+  const res = await fetch(url, { credentials: 'omit' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.json();
+}
+// JSONP: load url with ?callback=... and resolve the data
+function jsonp(url) {
+  return new Promise((resolve, reject) => {
+    const cb = '__cb' + Math.random().toString(36).slice(2);
+    const sep = url.includes('?') ? '&' : '?';
+    const s = document.createElement('script');
+    s.src = url + sep + 'callback=' + cb;
+    s.async = true;
+
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('JSONP timeout'));
+    }, 10000);
+
+    function cleanup() {
+      clearTimeout(timer);
+      try { delete window[cb]; } catch {}
+      s.remove();
+    }
+
+    window[cb] = (data) => { cleanup(); resolve(data); };
+    s.onerror = () => { cleanup(); reject(new Error('JSONP load error')); };
+
+    document.head.appendChild(s);
   });
-  return r.json();
 }
 
-// AFTER (GET - no preflight)
+// ---- API (with fallbacks) ----
+// GET redeem (no preflight)
 async function apiRedeem(code, deviceId) {
-  const url = BACKEND_BASE + `?path=redeem&code=${encodeURIComponent(code)}&deviceId=${encodeURIComponent(deviceId)}`;
-  const r = await fetch(url);
-  return r.json();
+  const url = BACKEND_BASE + `?path=redeem&code=${encodeURIComponent(code)}&deviceId=${encodeURIComponent(deviceId)}&t=${Date.now()}`;
+  try { return await fetchJSON(url); }
+  catch (err) {
+    console.error('redeem fetch failed, trying JSONP:', err);
+    return await jsonp(url);
+  }
+}
+async function apiFeed(type, token) {
+  const url = BACKEND_BASE + `?path=feed&type=${encodeURIComponent(type)}&token=${encodeURIComponent(token)}&t=${Date.now()}`;
+  try { return await fetchJSON(url); }
+  catch (err) {
+    console.warn('feed fetch failed, trying JSONP:', err);
+    return await jsonp(url);
+  }
+}
+async function apiVersion() {
+  const url = BACKEND_BASE + `?path=version&t=${Date.now()}`;
+  try { return await fetchJSON(url); }
+  catch (err) {
+    console.warn('version fetch failed, trying JSONP:', err);
+    return await jsonp(url);
+  }
 }
 
 // ---- rendering ----
@@ -152,16 +195,14 @@ async function ensureNotifyPermission() {
   } catch { return false; }
 }
 function webNotify(title, body) {
-  // Use a RELATIVE path so it works on subpaths too (GitHub Pages/Netlify)
   if (!notifyEnabled() || !('Notification' in window) || Notification.permission!=='granted') return;
   try {
-    new Notification(title, { body, icon: 'icon.png' });
+    new Notification(title, { body, icon: 'icon.png' }); // relative path to your repo root icon
   } catch {}
 }
 
 // ---- version notifier ----
 let lastVersion = st.get(KEY_VER, { news_orders:0, signals:0, announcements:0 });
-// prevent notifications on very first load
 let firstRun = (lastVersion.news_orders===0 && lastVersion.signals===0 && lastVersion.announcements===0);
 function saveVersionCache(v) { st.set(KEY_VER, v); lastVersion = v; }
 
@@ -169,7 +210,6 @@ async function checkVersionAndNotify() {
   try {
     const v = await apiVersion();
 
-    // On first run, seed cache without notifying
     if (firstRun) {
       saveVersionCache(v);
       firstRun = false;
@@ -185,7 +225,9 @@ async function checkVersionAndNotify() {
       }
     });
     saveVersionCache(v);
-  } catch {}
+  } catch (e) {
+    console.warn('checkVersionAndNotify failed:', e);
+  }
 }
 
 // ---- data fetch flow ----
@@ -199,10 +241,11 @@ async function doRefresh() {
       apiFeed('announcements', token).catch(()=>({items:[]})) // ok if sheet missing
     ]);
     if (news?.items) renderNews(news.items);
-    if (sig?.items)   renderSignals(sig.items);
-    if (ann?.items)   renderAnn(ann.items);
+    if (sig?.items)  renderSignals(sig.items);
+    if (ann?.items)  renderAnn(ann.items);
     updatedAtEl.textContent = fmtDate(new Date());
-  } catch {
+  } catch (err) {
+    console.error('Refresh failed:', err);
     updatedAtEl.textContent = 'refresh failed';
   }
 }
@@ -255,9 +298,10 @@ redeemBtn?.addEventListener('click', async ()=>{
       gateMsg.textContent = res.error || 'Failed to redeem code.';
       redeemBtn.disabled = false;
     }
-  } catch {
+  } catch (e) {
     gateMsg.textContent='Network error.';
     redeemBtn.disabled=false;
+    console.error('redeem failed:', e);
   }
 });
 
@@ -276,19 +320,22 @@ refreshBtn?.addEventListener('click', doRefresh);
 document.addEventListener('visibilitychange', ()=>{ if (!document.hidden) { doRefresh(); checkVersionAndNotify(); } });
 
 window.addEventListener('load', init);
-// --- test notification button ---
+
+// --- test notification button (dev only) ---
 document.getElementById('testNotify')?.addEventListener('click', async () => {
-  // ask for permission if not already granted
-  if (Notification.permission !== 'granted') {
-    await Notification.requestPermission();
-  }
-  if (Notification.permission === 'granted') {
-    new Notification("Crypto Private Feed", {
-      body: "This is a test notification 🔔",
-      icon: "icon.png"   // <- uses your local icon
-    });
-  } else {
-    alert("Notifications are blocked in your browser.");
+  try {
+    if (Notification.permission !== 'granted') {
+      await Notification.requestPermission();
+    }
+    if (Notification.permission === 'granted') {
+      new Notification("Crypto Private Feed", {
+        body: "This is a test notification 🔔",
+        icon: "icon.png"
+      });
+    } else {
+      alert("Notifications are blocked in your browser.");
+    }
+  } catch (e) {
+    console.error('testNotify error:', e);
   }
 });
-
