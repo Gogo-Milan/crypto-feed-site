@@ -275,3 +275,19 @@ refreshBtn?.addEventListener('click', doRefresh);
 document.addEventListener('visibilitychange', ()=>{ if (!document.hidden) { doRefresh(); checkVersionAndNotify(); } });
 
 window.addEventListener('load', init);
+// --- test notification button ---
+document.getElementById('testNotify')?.addEventListener('click', async () => {
+  // ask for permission if not already granted
+  if (Notification.permission !== 'granted') {
+    await Notification.requestPermission();
+  }
+  if (Notification.permission === 'granted') {
+    new Notification("Crypto Private Feed", {
+      body: "This is a test notification 🔔",
+      icon: "icon.png"   // <- uses your local icon
+    });
+  } else {
+    alert("Notifications are blocked in your browser.");
+  }
+});
+
