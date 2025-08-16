@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Crypto Private Feed</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="container">
+    <header class="topbar">
+      <h1>Crypto Private Feed</h1>
+      <div class="actions">
+        <button id="darkToggle" title="Toggle dark mode">🌙</button>
+      </div>
+    </header>
+    <section id="gate" class="card hidden">
+      <h2>Enter Access Code</h2>
+      <input id="codeInput" type="password" placeholder="One-time code">
+      <button id="redeemBtn">Unlock</button>
+      <p id="gateMsg" class="msg"></p>
+    </section>
+    <main id="main" class="hidden">
+      <nav class="tabs">
+        <button class="tab active" data-tab="news">News / Orders</button>
+        <button class="tab" data-tab="signals">Signals</button>
+        <button class="tab" data-tab="ann">Announcements</button>
+        <button id="refreshBtn" class="right" title="Refresh">↻</button>
+      </nav>
+      <section id="news" class="tabpane"></section>
+      <section id="signals" class="tabpane hidden">
+        <div class="row">
+          <button id="copy24hBtn">Copy last 24h signals</button>
+          <span id="copyMsg" class="msg"></span>
+        </div>
+        <div id="signalsList"></div>
+      </section>
+      <section id="ann" class="tabpane hidden"></section>
+      <footer class="foot">
+        <small>Last update: <span id="updatedAt">never</span></small>
+      </footer>
+    </main>
+  </div>
+  <script src="/lib/uuidv4.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
