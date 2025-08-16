@@ -1,12 +1,13 @@
-// ===== SITE APP (unlocks + feed + toast, beep, OS notifications, JSONP fallback) =====
+<script>
+// ===== SITE APP (unlocks + feed + toast, beep, OS notifications) =====
 const BACKEND_BASE    = "https://script.google.com/macros/s/AKfycbxYykjZ0s5IkolkWDD5PzpNeHnTUzBSu0IaJ73-S7zxjpptBFWtX2-AZZgHT_8uY78u/exec";
-const AUTO_REFRESH_MS = 2 * 60 * 1000;  // refresh data + check version
+const AUTO_REFRESH_MS = 2 * 60 * 1000;
 
 const KEY_TOKEN  = 'auth_token';
 const KEY_DEVICE = 'device_id';
-const KEY_VER    = 'last_version_cache'; // remember last versions across reloads
-const KEY_NOTI   = 'notify_enabled';     // remember if user ok'd notifications
-const KEY_AUDIO  = 'audio_unlocked';     // remember if user interacted for audio
+const KEY_VER    = 'last_version_cache';
+const KEY_NOTI   = 'notify_enabled';
+const KEY_AUDIO  = 'audio_unlocked';
 
 // DOM
 const gateEl      = document.getElementById('gate');
@@ -24,13 +25,13 @@ const toastEl     = document.getElementById('toast');
 
 let refreshTimer = null;
 
-// ---- storage (localStorage for site) ----
+// storage
 const st = {
   get(k, def=null) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } },
   set(k, v)        { localStorage.setItem(k, JSON.stringify(v)); }
 };
 
-// ---- utils ----
+// utils
 function setVisible(el, vis) { el.classList.toggle('hidden', !vis); }
 function h(txt) { const d=document.createElement('div'); d.textContent=txt??''; return d.innerHTML; }
 function fmtDate(dt){ const d=new Date(dt); return isNaN(d)?'':d.toLocaleString(); }
@@ -39,67 +40,28 @@ function uuidv4(){ return (crypto.randomUUID ? crypto.randomUUID() :
     const r=Math.random()*16|0,v=c==='x'?r:(r&0x3|0x8); return v.toString(16);
   })); }
 
-// ---- network helpers (robust fetch + JSONP fallback) ----
+// ---- network helpers (GET only) ----
 async function fetchJSON(url) {
   const res = await fetch(url, { credentials: 'omit' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return await res.json();
 }
-// JSONP: load url with ?callback=... and resolve the data
-function jsonp(url) {
-  return new Promise((resolve, reject) => {
-    const cb = '__cb' + Math.random().toString(36).slice(2);
-    const sep = url.includes('?') ? '&' : '?';
-    const s = document.createElement('script');
-    s.src = url + sep + 'callback=' + cb;
-    s.async = true;
 
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error('JSONP timeout'));
-    }, 10000);
-
-    function cleanup() {
-      clearTimeout(timer);
-      try { delete window[cb]; } catch {}
-      s.remove();
-    }
-
-    window[cb] = (data) => { cleanup(); resolve(data); };
-    s.onerror = () => { cleanup(); reject(new Error('JSONP load error')); };
-
-    document.head.appendChild(s);
-  });
-}
-
-// ---- API (with fallbacks) ----
-// GET redeem (no preflight)
+// API (GET, no preflight)
 async function apiRedeem(code, deviceId) {
   const url = BACKEND_BASE + `?path=redeem&code=${encodeURIComponent(code)}&deviceId=${encodeURIComponent(deviceId)}&t=${Date.now()}`;
-  try { return await fetchJSON(url); }
-  catch (err) {
-    console.error('redeem fetch failed, trying JSONP:', err);
-    return await jsonp(url);
-  }
+  return await fetchJSON(url);
 }
 async function apiFeed(type, token) {
   const url = BACKEND_BASE + `?path=feed&type=${encodeURIComponent(type)}&token=${encodeURIComponent(token)}&t=${Date.now()}`;
-  try { return await fetchJSON(url); }
-  catch (err) {
-    console.warn('feed fetch failed, trying JSONP:', err);
-    return await jsonp(url);
-  }
+  return await fetchJSON(url);
 }
 async function apiVersion() {
   const url = BACKEND_BASE + `?path=version&t=${Date.now()}`;
-  try { return await fetchJSON(url); }
-  catch (err) {
-    console.warn('version fetch failed, trying JSONP:', err);
-    return await jsonp(url);
-  }
+  return await fetchJSON(url);
 }
 
-// ---- rendering ----
+// rendering
 function renderNews(items){
   newsPane.innerHTML='';
   if(!items?.length){ newsPane.innerHTML='<p>No items yet.</p>'; return; }
@@ -147,7 +109,7 @@ function renderAnn(items){
   });
 }
 
-// ---- toast + beep ----
+// toast + beep
 function showToast(msg) {
   if (!toastEl) return;
   toastEl.textContent = msg;
@@ -159,7 +121,6 @@ function unlockAudioOnce() {
   if (audioUnlocked()) return;
   try {
     const ctx = new (window.AudioContext||window.webkitAudioContext)();
-    // one tiny, inaudible burst to satisfy autoplay rules
     const o=ctx.createOscillator(), g=ctx.createGain();
     o.connect(g); g.connect(ctx.destination);
     g.gain.value = 0; o.start(); o.stop(ctx.currentTime + 0.01);
@@ -180,7 +141,7 @@ function beep() {
   } catch {}
 }
 
-// ---- Web Notifications (native OS popups) ----
+// Web Notifications
 function notifyEnabled() { return st.get(KEY_NOTI, false) === true; }
 async function ensureNotifyPermission() {
   if (notifyEnabled()) return true;
@@ -197,11 +158,11 @@ async function ensureNotifyPermission() {
 function webNotify(title, body) {
   if (!notifyEnabled() || !('Notification' in window) || Notification.permission!=='granted') return;
   try {
-    new Notification(title, { body, icon: 'icon.png' }); // relative path to your repo root icon
+    new Notification(title, { body, icon: 'icon.png' });
   } catch {}
 }
 
-// ---- version notifier ----
+// version notifier
 let lastVersion = st.get(KEY_VER, { news_orders:0, signals:0, announcements:0 });
 let firstRun = (lastVersion.news_orders===0 && lastVersion.signals===0 && lastVersion.announcements===0);
 function saveVersionCache(v) { st.set(KEY_VER, v); lastVersion = v; }
@@ -209,12 +170,7 @@ function saveVersionCache(v) { st.set(KEY_VER, v); lastVersion = v; }
 async function checkVersionAndNotify() {
   try {
     const v = await apiVersion();
-
-    if (firstRun) {
-      saveVersionCache(v);
-      firstRun = false;
-      return;
-    }
+    if (firstRun) { saveVersionCache(v); firstRun = false; return; }
 
     ['news_orders','signals','announcements'].forEach(k=>{
       if (v[k] && v[k] > (lastVersion[k]||0)) {
@@ -230,7 +186,7 @@ async function checkVersionAndNotify() {
   }
 }
 
-// ---- data fetch flow ----
+// data fetch flow
 async function doRefresh() {
   const token = st.get(KEY_TOKEN, null);
   if (!token) return;
@@ -238,7 +194,7 @@ async function doRefresh() {
     const [news, sig, ann] = await Promise.all([
       apiFeed('news_orders', token),
       apiFeed('signals', token),
-      apiFeed('announcements', token).catch(()=>({items:[]})) // ok if sheet missing
+      apiFeed('announcements', token).catch(()=>({items:[]})) // ok if missing
     ]);
     if (news?.items) renderNews(news.items);
     if (sig?.items)  renderSignals(sig.items);
@@ -266,7 +222,6 @@ function init() {
   let deviceId = st.get(KEY_DEVICE, null);
   if (!deviceId) { deviceId = uuidv4(); st.set(KEY_DEVICE, deviceId); }
 
-  // Unlock audio + ask notif permission once after first interaction
   const oneTimeInteract = () => {
     unlockAudioOnce();
     ensureNotifyPermission();
@@ -283,7 +238,7 @@ function init() {
   else { setVisible(gateEl, true); setVisible(mainEl, false); }
 }
 
-// ---- events ----
+// events
 redeemBtn?.addEventListener('click', async ()=>{
   gateMsg.textContent='';
   const code = (codeInput.value||'').trim();
@@ -321,21 +276,15 @@ document.addEventListener('visibilitychange', ()=>{ if (!document.hidden) { doRe
 
 window.addEventListener('load', init);
 
-// --- test notification button (dev only) ---
+// test notify (optional button)
 document.getElementById('testNotify')?.addEventListener('click', async () => {
   try {
-    if (Notification.permission !== 'granted') {
-      await Notification.requestPermission();
-    }
+    if (Notification.permission !== 'granted') await Notification.requestPermission();
     if (Notification.permission === 'granted') {
-      new Notification("Crypto Private Feed", {
-        body: "This is a test notification 🔔",
-        icon: "icon.png"
-      });
+      new Notification("Crypto Private Feed", { body: "This is a test notification 🔔", icon: "icon.png" });
     } else {
       alert("Notifications are blocked in your browser.");
     }
-  } catch (e) {
-    console.error('testNotify error:', e);
-  }
+  } catch (e) { console.error('testNotify error:', e); }
 });
+</script>
