@@ -1,5 +1,4 @@
-<script>
-// ===== SITE APP (unlocks + feed + toast, beep, OS notifications) =====
+// ===== SITE APP (unlocks + feed + toast, beep, OS notifications; fetch only) =====
 const BACKEND_BASE    = "https://script.google.com/macros/s/AKfycbxYykjZ0s5IkolkWDD5PzpNeHnTUzBSu0IaJ73-S7zxjpptBFWtX2-AZZgHT_8uY78u/exec";
 const AUTO_REFRESH_MS = 2 * 60 * 1000;
 
@@ -22,6 +21,7 @@ const annPane     = document.getElementById('ann');
 const refreshBtn  = document.getElementById('refreshBtn');
 const updatedAtEl = document.getElementById('updatedAt');
 const toastEl     = document.getElementById('toast');
+const darkToggle  = document.getElementById('darkToggle');
 
 let refreshTimer = null;
 
@@ -40,28 +40,28 @@ function uuidv4(){ return (crypto.randomUUID ? crypto.randomUUID() :
     const r=Math.random()*16|0,v=c==='x'?r:(r&0x3|0x8); return v.toString(16);
   })); }
 
-// ---- network helpers (GET only) ----
+// fetch helpers
 async function fetchJSON(url) {
-  const res = await fetch(url, { credentials: 'omit' });
+  const res = await fetch(url, { credentials: 'omit', cache: 'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return await res.json();
 }
 
-// API (GET, no preflight)
+// API (GET only)
 async function apiRedeem(code, deviceId) {
-  const url = BACKEND_BASE + `?path=redeem&code=${encodeURIComponent(code)}&deviceId=${encodeURIComponent(deviceId)}&t=${Date.now()}`;
-  return await fetchJSON(url);
+  const url = `${BACKEND_BASE}?path=redeem&code=${encodeURIComponent(code)}&deviceId=${encodeURIComponent(deviceId)}&t=${Date.now()}`;
+  return fetchJSON(url);
 }
 async function apiFeed(type, token) {
-  const url = BACKEND_BASE + `?path=feed&type=${encodeURIComponent(type)}&token=${encodeURIComponent(token)}&t=${Date.now()}`;
-  return await fetchJSON(url);
+  const url = `${BACKEND_BASE}?path=feed&type=${encodeURIComponent(type)}&token=${encodeURIComponent(token)}&t=${Date.now()}`;
+  return fetchJSON(url);
 }
 async function apiVersion() {
-  const url = BACKEND_BASE + `?path=version&t=${Date.now()}`;
-  return await fetchJSON(url);
+  const url = `${BACKEND_BASE}?path=version&t=${Date.now()}`;
+  return fetchJSON(url);
 }
 
-// rendering
+// render
 function renderNews(items){
   newsPane.innerHTML='';
   if(!items?.length){ newsPane.innerHTML='<p>No items yet.</p>'; return; }
@@ -109,7 +109,7 @@ function renderAnn(items){
   });
 }
 
-// toast + beep
+// toast + beep + notifications
 function showToast(msg) {
   if (!toastEl) return;
   toastEl.textContent = msg;
@@ -140,8 +140,6 @@ function beep() {
     o.start(); o.stop(ctx.currentTime+0.16);
   } catch {}
 }
-
-// Web Notifications
 function notifyEnabled() { return st.get(KEY_NOTI, false) === true; }
 async function ensureNotifyPermission() {
   if (notifyEnabled()) return true;
@@ -157,9 +155,7 @@ async function ensureNotifyPermission() {
 }
 function webNotify(title, body) {
   if (!notifyEnabled() || !('Notification' in window) || Notification.permission!=='granted') return;
-  try {
-    new Notification(title, { body, icon: 'icon.png' });
-  } catch {}
+  try { new Notification(title, { body, icon: 'icon.png' }); } catch {}
 }
 
 // version notifier
@@ -170,6 +166,7 @@ function saveVersionCache(v) { st.set(KEY_VER, v); lastVersion = v; }
 async function checkVersionAndNotify() {
   try {
     const v = await apiVersion();
+
     if (firstRun) { saveVersionCache(v); firstRun = false; return; }
 
     ['news_orders','signals','announcements'].forEach(k=>{
@@ -182,11 +179,11 @@ async function checkVersionAndNotify() {
     });
     saveVersionCache(v);
   } catch (e) {
-    console.warn('checkVersionAndNotify failed:', e);
+    console.error('checkVersionAndNotify failed:', e);
   }
 }
 
-// data fetch flow
+// data flow
 async function doRefresh() {
   const token = st.get(KEY_TOKEN, null);
   if (!token) return;
@@ -194,7 +191,7 @@ async function doRefresh() {
     const [news, sig, ann] = await Promise.all([
       apiFeed('news_orders', token),
       apiFeed('signals', token),
-      apiFeed('announcements', token).catch(()=>({items:[]})) // ok if missing
+      apiFeed('announcements', token).catch(()=>({items:[]})) // ok if sheet missing
     ]);
     if (news?.items) renderNews(news.items);
     if (sig?.items)  renderSignals(sig.items);
@@ -219,12 +216,17 @@ async function showMain() {
 }
 
 function init() {
+  // dark mode toggle (simple proof JS is running)
+  darkToggle?.addEventListener('click', () => {
+    document.body.classList.toggle('dark');
+  });
+
   let deviceId = st.get(KEY_DEVICE, null);
   if (!deviceId) { deviceId = uuidv4(); st.set(KEY_DEVICE, deviceId); }
 
+  // unlock audio + ask notif permission once after first interaction
   const oneTimeInteract = () => {
-    unlockAudioOnce();
-    ensureNotifyPermission();
+    unlockAudioOnce(); ensureNotifyPermission();
     window.removeEventListener('click', oneTimeInteract);
     window.removeEventListener('keydown', oneTimeInteract);
     window.removeEventListener('touchstart', oneTimeInteract, {passive:true});
@@ -274,17 +276,5 @@ tabsBtns.forEach(btn=>{
 refreshBtn?.addEventListener('click', doRefresh);
 document.addEventListener('visibilitychange', ()=>{ if (!document.hidden) { doRefresh(); checkVersionAndNotify(); } });
 
+window.addEventListener('error', e => console.error('JS error:', e.message, e.filename, e.lineno));
 window.addEventListener('load', init);
-
-// test notify (optional button)
-document.getElementById('testNotify')?.addEventListener('click', async () => {
-  try {
-    if (Notification.permission !== 'granted') await Notification.requestPermission();
-    if (Notification.permission === 'granted') {
-      new Notification("Crypto Private Feed", { body: "This is a test notification 🔔", icon: "icon.png" });
-    } else {
-      alert("Notifications are blocked in your browser.");
-    }
-  } catch (e) { console.error('testNotify error:', e); }
-});
-</script>
