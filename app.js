@@ -48,22 +48,59 @@ function showError(msg){
   setTimeout(()=> toastEl.style.display='none', 4000);
 }
 
+// --- client info (ua/net/ip) helper ---
+async function getClientInfo() {
+  const ua  = navigator.userAgent || '';
+  const net = (navigator.connection && navigator.connection.effectiveType) || '';
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 1500);
+    const r = await fetch('https://api.ipify.org?format=json', { signal: ctrl.signal });
+    clearTimeout(t);
+    if (r.ok) {
+      const j = await r.json();
+      return { ua, net, ip: j.ip || '' };
+    }
+  } catch {}
+  return { ua, net, ip: '' };
+}
+
 // ---- API (GET only; avoids CORS preflight) ----
 async function apiRedeem(code, deviceId) {
-  const url = BACKEND_BASE + `?path=redeem&code=${encodeURIComponent(code)}&deviceId=${encodeURIComponent(deviceId)}&t=${Date.now()}`;
-  const res = await fetch(url, { credentials:'omit' });
+  const info = await getClientInfo();
+  const qs = new URLSearchParams({
+    path: 'redeem',
+    code,
+    deviceId,
+    ua: info.ua,
+    net: info.net,
+    ip: info.ip,
+    t: String(Date.now())
+  });
+  const url = `${BACKEND_BASE}?${qs.toString()}`;
+  const res = await fetch(url, { credentials:'omit', cache: 'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 async function apiFeed(type, token) {
-  const url = BACKEND_BASE + `?path=feed&type=${encodeURIComponent(type)}&token=${encodeURIComponent(token)}&t=${Date.now()}`;
-  const res = await fetch(url, { credentials:'omit' });
+  const info = await getClientInfo();
+  const qs = new URLSearchParams({
+    path: 'feed',
+    type,
+    token,
+    ua: info.ua,
+    net: info.net,
+    ip: info.ip,
+    t: String(Date.now())
+  });
+  const url = `${BACKEND_BASE}?${qs.toString()}`;
+  const res = await fetch(url, { credentials:'omit', cache: 'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 async function apiVersion() {
   const url = BACKEND_BASE + `?path=version&t=${Date.now()}`;
-  const res = await fetch(url, { credentials:'omit' });
+  const res = await fetch(url, { credentials:'omit', cache: 'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -175,7 +212,6 @@ async function checkVersionAndNotify() {
     ['news_orders','signals','announcements'].forEach(k=>{
       if (v[k] && v[k] > (lastVersion[k]||0)) {
         const pretty = k.replace('_',' / ');
-        // toast + optional beep + OS notification
         if (toastEl){ toastEl.textContent = `New update in ${pretty}`; toastEl.style.display = 'block'; setTimeout(()=> toastEl.style.display='none', 4000); }
         beep();
         webNotify('Crypto Private Feed', `New ${pretty} posted`);
