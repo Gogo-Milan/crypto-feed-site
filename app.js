@@ -1,4 +1,4 @@
-// ===== SITE APP (unlocks + feed + toast, beep, OS notifications) =====
+// ===== SITE APP (unlocks + feed + toast, beep, OS notifications + logging UA/IP) =====
 const BACKEND_BASE    = "https://script.google.com/macros/s/AKfycbxYykjZ0s5IkolkWDD5PzpNeHnTUzBSu0IaJ73-S7zxjpptBFWtX2-AZZgHT_8uY78u/exec";
 const AUTO_REFRESH_MS = 2 * 60 * 1000;  // refresh data + check version
 
@@ -48,59 +48,50 @@ function showError(msg){
   setTimeout(()=> toastEl.style.display='none', 4000);
 }
 
-// --- client info (ua/net/ip) helper ---
-async function getClientInfo() {
-  const ua  = navigator.userAgent || '';
-  const net = (navigator.connection && navigator.connection.effectiveType) || '';
-  try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 1500);
-    const r = await fetch('https://api.ipify.org?format=json', { signal: ctrl.signal });
-    clearTimeout(t);
-    if (r.ok) {
-      const j = await r.json();
-      return { ua, net, ip: j.ip || '' };
-    }
-  } catch {}
-  return { ua, net, ip: '' };
+// ---- client info (UA, network, IP) ----
+let _ciPromise = null;
+async function clientInfo() {
+  if (_ciPromise) return _ciPromise;
+  _ciPromise = (async () => {
+    const ua  = navigator.userAgent || '';
+    const net = (navigator.connection && navigator.connection.effectiveType) ? navigator.connection.effectiveType : '';
+    let ip = '';
+    try {
+      const ctl = new AbortController();
+      const t   = setTimeout(() => ctl.abort(), 4000); // 4s timeout
+      const r   = await fetch('https://api.ipify.org?format=json', { signal: ctl.signal, cache: 'no-store' });
+      clearTimeout(t);
+      if (r.ok) { ip = (await r.json()).ip || ''; }
+    } catch(_) {}
+    return { ua, net, ip };
+  })();
+  return _ciPromise;
 }
 
 // ---- API (GET only; avoids CORS preflight) ----
 async function apiRedeem(code, deviceId) {
-  const info = await getClientInfo();
-  const qs = new URLSearchParams({
-    path: 'redeem',
-    code,
-    deviceId,
-    ua: info.ua,
-    net: info.net,
-    ip: info.ip,
-    t: String(Date.now())
-  });
-  const url = `${BACKEND_BASE}?${qs.toString()}`;
-  const res = await fetch(url, { credentials:'omit', cache: 'no-store' });
+  const { ua, net, ip } = await clientInfo();
+  const url = BACKEND_BASE
+    + `?path=redeem&code=${encodeURIComponent(code)}&deviceId=${encodeURIComponent(deviceId)}`
+    + `&ua=${encodeURIComponent(ua)}&net=${encodeURIComponent(net)}&ip=${encodeURIComponent(ip)}`
+    + `&t=${Date.now()}`;
+  const res = await fetch(url, { credentials:'omit', cache:'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 async function apiFeed(type, token) {
-  const info = await getClientInfo();
-  const qs = new URLSearchParams({
-    path: 'feed',
-    type,
-    token,
-    ua: info.ua,
-    net: info.net,
-    ip: info.ip,
-    t: String(Date.now())
-  });
-  const url = `${BACKEND_BASE}?${qs.toString()}`;
-  const res = await fetch(url, { credentials:'omit', cache: 'no-store' });
+  const { ua, net, ip } = await clientInfo();
+  const url = BACKEND_BASE
+    + `?path=feed&type=${encodeURIComponent(type)}&token=${encodeURIComponent(token)}`
+    + `&ua=${encodeURIComponent(ua)}&net=${encodeURIComponent(net)}&ip=${encodeURIComponent(ip)}`
+    + `&t=${Date.now()}`;
+  const res = await fetch(url, { credentials:'omit', cache:'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 async function apiVersion() {
   const url = BACKEND_BASE + `?path=version&t=${Date.now()}`;
-  const res = await fetch(url, { credentials:'omit', cache: 'no-store' });
+  const res = await fetch(url, { credentials:'omit', cache:'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -218,9 +209,7 @@ async function checkVersionAndNotify() {
       }
     });
     saveVersionCache(v);
-  } catch (e) {
-    // silent; not a fatal path
-  }
+  } catch (_) {}
 }
 
 // ---- data fetch flow ----
